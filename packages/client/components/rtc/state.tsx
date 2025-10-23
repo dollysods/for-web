@@ -2,9 +2,8 @@ import {
   Accessor,
   JSX,
   Setter,
-  Show,
+  batch,
   createContext,
-  createEffect,
   createMemo,
   createSignal,
   useContext,
@@ -16,10 +15,14 @@ import {
   useTracks,
 } from "solid-livekit-components";
 
-import { getTrackReferenceId, isLocal } from "@livekit/components-core";
-import { Key } from "@solid-primitives/keyed";
-import type { RemoteTrackPublication } from "livekit-client";
-import { Room, Track } from "livekit-client";
+import { Room } from "livekit-client";
+import { Channel } from "stoat.js";
+
+import { useState } from "@revolt/state";
+import { Voice as VoiceSettings } from "@revolt/state/stores/Voice";
+
+import { InRoom } from "./components/InRoom";
+import { RoomAudioManager } from "./components/RoomAudioManager";
 
 type State =
   | "READY"
@@ -29,14 +32,19 @@ type State =
   | "RECONNECTING";
 
 class Voice {
-  roomId: Accessor<string | undefined>;
-  #setRoomId: Setter<string | undefined>;
+  #settings: VoiceSettings;
+
+  channel: Accessor<Channel | undefined>;
+  #setChannel: Setter<Channel | undefined>;
 
   room: Accessor<Room | undefined>;
   #setRoom: Setter<Room | undefined>;
 
   state: Accessor<State>;
   #setState: Setter<State>;
+
+  deafen: Accessor<boolean>;
+  #setDeafen: Setter<boolean>;
 
   microphone: Accessor<boolean>;
   #setMicrophone: Setter<boolean>;
@@ -47,10 +55,12 @@ class Voice {
   screenshare: Accessor<boolean>;
   #setScreenshare: Setter<boolean>;
 
-  constructor() {
-    const [roomId, setRoomId] = createSignal<string>();
-    this.roomId = roomId;
-    this.#setRoomId = setRoomId;
+  constructor(voiceSettings: VoiceSettings) {
+    this.#settings = voiceSettings;
+
+    const [channel, setChannel] = createSignal<Channel>();
+    this.channel = channel;
+    this.#setChannel = setChannel;
 
     const [room, setRoom] = createSignal<Room>();
     this.room = room;
@@ -59,6 +69,10 @@ class Voice {
     const [state, setState] = createSignal<State>("READY");
     this.state = state;
     this.#setState = setState;
+
+    const [deafen, setDeafen] = createSignal<boolean>(false);
+    this.deafen = deafen;
+    this.#setDeafen = setDeafen;
 
     const [microphone, setMicrophone] = createSignal(false);
     this.microphone = microphone;
@@ -73,27 +87,65 @@ class Voice {
     this.#setScreenshare = setScreenshare;
   }
 
-  async connect(url: string, token: string, roomId: string) {
-    if (this.room()) throw "room already exists";
+  async connect(channel: Channel, auth?: { url: string; token: string }) {
+    this.disconnect();
 
-    const room = new Room();
-    this.#setRoom(room);
-    this.#setRoomId(roomId);
-    this.#setState("CONNECTING");
+    const room = new Room({
+      audioCaptureDefaults: {
+        deviceId: this.#settings.preferredAudioInputDevice,
+        echoCancellation: this.#settings.echoCancellation,
+        noiseSuppression: this.#settings.noiseSupression,
+      },
+      audioOutput: {
+        deviceId: this.#settings.preferredAudioOutputDevice,
+      },
+    });
+
+    batch(() => {
+      this.#setRoom(room);
+      this.#setChannel(channel);
+      this.#setState("CONNECTING");
+
+      this.#setMicrophone(false);
+      this.#setDeafen(false);
+      this.#setVideo(false);
+      this.#setScreenshare(false);
+
+      if (this.speakingPermission)
+        room.localParticipant
+          .setMicrophoneEnabled(true)
+          .then((track) => this.#setMicrophone(typeof track !== "undefined"));
+    });
+
     room.addListener("connected", () => this.#setState("CONNECTED"));
+
     room.addListener("disconnected", () => this.#setState("DISCONNECTED"));
 
-    await room.connect(url, token);
+    if (!auth) {
+      auth = await channel.joinCall("worldwide");
+    }
+
+    await room.connect(auth.url, auth.token, {
+      autoSubscribe: false,
+    });
   }
 
   disconnect() {
     const room = this.room();
-    if (!room) throw "no room";
-    room.disconnect();
+    if (!room) return;
+
     room.removeAllListeners();
-    this.#setState("READY");
-    this.#setRoom(undefined);
-    this.#setRoomId(undefined);
+    room.disconnect();
+
+    batch(() => {
+      this.#setState("READY");
+      this.#setRoom(undefined);
+      this.#setChannel(undefined);
+    });
+  }
+
+  async toggleDeafen() {
+    this.#setDeafen((s) => !s);
   }
 
   async toggleMute() {
@@ -125,49 +177,24 @@ class Voice {
 
     this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
   }
+
+  get listenPermission() {
+    return !!this.channel()?.havePermission("Listen");
+  }
+
+  get speakingPermission() {
+    return !!this.channel()?.havePermission("Speak");
+  }
 }
 
 const voiceContext = createContext<Voice>(null as unknown as Voice);
 
-export function RoomAudioManager() {
-  const tracks = useTracks(
-    [
-      Track.Source.Microphone,
-      Track.Source.ScreenShareAudio,
-      Track.Source.Unknown,
-    ],
-    {
-      updateOnlyOn: [],
-      onlySubscribed: false,
-    },
-  );
-
-  const filteredTracks = createMemo(() =>
-    tracks().filter(
-      (track) =>
-        !isLocal(track.participant) &&
-        track.publication.kind === Track.Kind.Audio,
-    ),
-  );
-
-  createEffect(() => {
-    console.info("filtered tracks", filteredTracks());
-    for (const track of filteredTracks()) {
-      (track.publication as RemoteTrackPublication).setSubscribed(true);
-    }
-  });
-
-  return (
-    <div style={{ display: "none" }}>
-      <Key each={filteredTracks()} by={(item) => getTrackReferenceId(item)}>
-        {(track) => <AudioTrack trackRef={track()} volume={1} muted={false} />}
-      </Key>
-    </div>
-  );
-}
-
+/**
+ * Mount global voice context and room audio manager
+ */
 export function VoiceContext(props: { children: JSX.Element }) {
-  const voice = new Voice();
+  const state = useState();
+  const voice = new Voice(state.voice);
 
   return (
     <voiceContext.Provider value={voice}>
@@ -179,12 +206,6 @@ export function VoiceContext(props: { children: JSX.Element }) {
       </RoomContext.Provider>
     </voiceContext.Provider>
   );
-}
-
-export function InRoom(props: { children: JSX.Element }) {
-  const room = useMaybeRoomContext();
-
-  return <Show when={room?.()}>{props.children}</Show>;
 }
 
 export const useVoice = () => useContext(voiceContext);
