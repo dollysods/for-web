@@ -15,7 +15,7 @@ export default function Accessibility() {
     <Column gap="lg">
       <Column>
         <Text class="title" size="small">
-          <Trans>Chat input</Trans>
+          <Trans>Chat Input</Trans>
         </Text>
 
         <CategoryButton
