@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build js-lingui-solid
+        run: cd packages/js-lingui-solid && pnpm run build
+
       - name: Build stoat.js
         run: cd packages/stoat.js && pnpm run build
 
