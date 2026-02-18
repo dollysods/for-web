@@ -1,10 +1,9 @@
 import { createFormControl, createFormGroup } from "solid-forms";
-import { For, Match, Switch, createEffect, onCleanup } from "solid-js";
+import { For, Match, Switch } from "solid-js";
 
 import { Trans, useLingui } from "@lingui-solid/solid/macro";
 import { API, Message as MessageI, Server, User } from "stoat.js";
 import { cva } from "styled-system/css";
-import { styled } from "styled-system/jsx";
 
 import { Message } from "@revolt/app";
 import {
@@ -12,10 +11,10 @@ import {
   Column,
   Dialog,
   DialogProps,
+  FloatingSelect,
   Form2,
   Initials,
   MenuItem,
-  FloatingSelect,
 } from "@revolt/ui";
 
 import { useModals } from "..";
@@ -182,25 +181,25 @@ export function ReportContentModal(
             )}
           </div>
 
-             <FloatingSelect
-              label={t`Reason for report`}
-              required
-              value={group.controls.category.value}
-              onChange={(
-                e: Event & { currentTarget: HTMLElement; target: Element },
-              ) =>
-                group.controls.category.setValue(
-                  e.currentTarget.getAttribute("value") || "",
-                )
-              }
-            >
-              <MenuItem value="">
-                <Trans>Please select a reason</Trans>
-              </MenuItem>
-              <For each={reasons}>
-                {(value) => <MenuItem value={value}>{strings[value]}</MenuItem>}
-              </For>
-            </FloatingSelect>
+          <FloatingSelect
+            label={t`Reason for report`}
+            required
+            value={group.controls.category.value}
+            onChange={(
+              e: Event & { currentTarget: HTMLElement; target: Element },
+            ) =>
+              group.controls.category.setValue(
+                e.currentTarget.getAttribute("value") || "",
+              )
+            }
+          >
+            <MenuItem value="">
+              <Trans>Please select a reason</Trans>
+            </MenuItem>
+            <For each={reasons}>
+              {(value) => <MenuItem value={value}>{strings[value]}</MenuItem>}
+            </For>
+          </FloatingSelect>
 
           {/* TODO: use TextEditor? */}
           <Form2.TextField
