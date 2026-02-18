@@ -27,26 +27,28 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Mise
-        uses: jdx/mise-action@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          experimental: true
+          node-version: '22'
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
 
       - name: Install dependencies
-        run: mise run install:frozen
+        run: pnpm install
 
-      - name: Build dependencies
-        run: mise run build:deps
+      - name: Build stoat.js
+        run: cd packages/stoat.js && pnpm run build
 
       - name: Copy assets
-        run: |
-          cd packages/client
-          node scripts/copyAssets.mjs
+        run: cd packages/client && node scripts/copyAssets.mjs
+
+      - name: Generate panda CSS
+        run: cd packages/client && pnpm run prepare
 
       - name: Build client
-        run: |
-          cd packages/client
-          pnpm exec vite build
+        run: cd packages/client && pnpm exec vite build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
