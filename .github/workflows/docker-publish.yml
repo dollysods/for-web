@@ -38,6 +38,11 @@ jobs:
       - name: Build dependencies
         run: mise run build:deps
 
+      - name: Copy assets
+        run: |
+          cd packages/client
+          node scripts/copyAssets.mjs
+
       - name: Build client
         run: |
           cd packages/client
